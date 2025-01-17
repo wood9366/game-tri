@@ -1,9 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using Unity.VisualScripting;
-using UnityEditor;
 using UnityEngine;
 
 public class Game : MonoBehaviour
@@ -64,25 +60,23 @@ public class Game : MonoBehaviour
     private int _start_block_id = 1;
 
     private int _next_block_id() => _start_block_id++;
+    private int GetNumCols() => _num_cols;
+    private int GetNumRows() => _rows.Count;
 
     void Start()
     {
         _blocks = new Block[_num_cols, _rows.Count];
-        for (int x = 0; x < _blocks.GetLength(0); x++)
-            for (int y = 0; y < _blocks.GetLength(1); y++)
+        for (int x = 0; x < GetNumCols(); x++)
+            for (int y = 0; y < GetNumRows(); y++)
                 _blocks[x, y] = new Block();
 
         GameStart();
     }
 
-    internal async void GameStart()
+    internal void GameStart()
     {
-        _generate_blocks();
+        GenerateBlocks();
         GenerateBlockItems();
-
-        await Task.Delay(3000);
-
-        _check_eliminates();
     }
 
     private void _clear_block_items()
@@ -95,90 +89,233 @@ public class Game : MonoBehaviour
 
     private void _clear_blocks()
     {
-        for (int x = 0; x < _blocks.GetLength(0); x++)
-            for (int y = 0; y < _blocks.GetLength(1); y++)
+        for (int x = 0; x < GetNumCols(); x++)
+            for (int y = 0; y < GetNumRows(); y++)
                 _blocks[x, y].id = 0;
+    }
+
+    internal void DoFill()
+    {
+        _change_blocks.Clear();
+
+        // find empty blocks on each col
+        for (int x = 0; x < GetNumCols(); x++)
+        {
+            for (int y = 0; y < GetNumRows(); y++)
+            {
+                var block = _blocks[x, y];
+
+                if (block.id != 0)
+                    break;
+
+                var block_type = _block_types[Random.Range(0, _block_types.Count)];
+
+                block.id = _next_block_id();
+                block.type = block_type.type;
+
+                _change_blocks.Add(block.id, new Cell() { x = x, y = y });
+            }
+        }
+
+        foreach (var item in _change_blocks)
+        {
+            var block = _blocks[item.Value.x, item.Value.y];
+            var block_type = _block_types.Find(x => x.type == block.type);
+
+            _create_block_item(item.Key, block_type, item.Value.x, item.Value.y);
+        }
+    }
+
+    private Dictionary<int, Cell> _change_blocks = new Dictionary<int, Cell>();
+
+    internal void DoDrop()
+    {
+        _change_blocks.Clear();
+        
+        // cal drop blocks on each col
+        for (int x = 0; x < GetNumCols(); x++)
+        {
+            int num_empty = 0;
+            int y = GetNumRows() - 1;
+
+            // from bottom to top check link empty block
+            while (y >= 0)
+            {
+                if (_blocks[x, y].id == 0)
+                {
+                    num_empty++;
+                    y--;
+                }
+                else
+                {
+                    if (num_empty > 0)
+                    {
+                        // move item on top of empty blocks down
+                        for (int i = y; i >= 0; i--)
+                        {
+                            var from_block = _blocks[x, i];
+                            var to_block = _blocks[x, i + num_empty];
+
+                            to_block.id = from_block.id;
+                            to_block.type = from_block.type;
+
+                            // record drop block id and move to cell
+                            if (!_change_blocks.TryGetValue(from_block.id, out var drop_block))
+                            {
+                                drop_block = new Cell();
+                                _change_blocks.Add(from_block.id, drop_block);
+                            }
+
+                            drop_block.x = x;
+                            drop_block.y = i + num_empty;
+                        }
+
+                        for (int i = 0; i < num_empty; i++)
+                            _blocks[x, i].id = 0;
+
+                        y += num_empty - 1;
+                        num_empty = 0;
+                    }
+                    else
+                    {
+                        y--;
+                    }
+                }
+            }
+        }
+
+        // update drop block items pos
+        foreach (var id2cell in _change_blocks)
+        {
+            if (_block_items.TryGetValue(id2cell.Key, out var item))
+            {
+                var cell = id2cell.Value;
+                item.transform.position = _get_cell_pos(cell.x, cell.y);
+            }
+        }
     }
 
     static private readonly int NUM_MIN_LINK = 3;
 
     private List<Eliminate> _row_eliminates = new List<Eliminate>();
     private List<Eliminate> _col_eliminates = new List<Eliminate>();
+    private HashSet<int> _eliminate_blocks = new HashSet<int>();
 
-    internal void _check_eliminates()
+    internal void DoEliminate()
+    {
+        // remove eliminate blocks
+        _eliminate_blocks.Clear();
+
+        foreach (var e in _row_eliminates)
+        {
+            foreach (var c in e.cells)
+            {
+                var block = _blocks[c.x, c.y];
+
+                _eliminate_blocks.Add(block.id);
+                block.id = 0;
+            }
+        }
+
+        _row_eliminates.Clear();
+
+        foreach (var e in _col_eliminates)
+        {
+            foreach (var c in e.cells)
+            {
+                var block = _blocks[c.x, c.y];
+
+                _eliminate_blocks.Add(block.id);
+                block.id = 0;
+            }
+        }
+
+        _col_eliminates.Clear();
+
+        // remove eliminate block items
+        foreach (var id in _eliminate_blocks)
+        {
+            if (_block_items.TryGetValue(id, out var item))
+            {
+                _block_items.Remove(id);
+                GameObject.Destroy(item.gameObject);
+            }
+        }
+
+        _eliminate_blocks.Clear();
+    }
+
+    internal void CheckEliminate()
     {
         _row_eliminates.Clear();
         _col_eliminates.Clear();
-        
-        int num_cols = _blocks.GetLength(0);
-        int num_rows = _blocks.GetLength(1);
 
-        for (int x = 0; x < num_cols; x++)
+        _check_eliminate_by_line(true, ref _row_eliminates);
+        _check_eliminate_by_line(false, ref _col_eliminates);
+    }
+
+    private void _check_eliminate_by_line(bool is_by_row, ref List<Eliminate> eliminates)
+    {
+        var num_check_line = is_by_row ? GetNumRows() : GetNumCols();
+
+        for (int i = 0; i < num_check_line; i++)
+            _check_eliminate_on_line(is_by_row, i, ref eliminates);
+    }
+
+    private void _check_eliminate_on_line(bool is_by_row, int i, ref List<Eliminate> eliminates )
+    {
+        var num = is_by_row ? GetNumCols() : GetNumRows();
+
+        // check link item from each one on line
+        int j = 0;
+        while (j < num - NUM_MIN_LINK + 1)
         {
-            for (int y = 0; y < num_rows - NUM_MIN_LINK + 1; )
+            var block = is_by_row ? _blocks[j, i] : _blocks[i, j];
+
+            if (block.id == 0)
             {
-                var block = _blocks[x, y];
-
-                int link_num = 0;
-                int check_link_num_max = num_rows;
-
-                for (int i = 1; i < check_link_num_max; i++)
-                {
-                    if (y + i < num_rows && block.type == _blocks[x, y + i].type)
-                        link_num = i + 1;
-                    else
-                        break;
-                }
-
-                if (link_num >= NUM_MIN_LINK)
-                {
-                    var estimate = new Eliminate();
-                    for (int i = 0; i < link_num; i++)
-                        estimate.cells.Add(new Cell() { x = x, y = y + i });
-
-                    _col_eliminates.Add(estimate);
-
-                    y += link_num;
-                }
-                else
-                    y++;
+                j++;
+                continue;
             }
-        }
 
-        for (int y = 0; y < num_rows; y++)
-        {
-            for (int x = 0; x < num_cols - NUM_MIN_LINK - 1; )
+            int link_num = 0;
+            int check_link_num_max = num - j;
+
+            // check link item as long as possible
+            for (int k = 1; k < check_link_num_max; k++)
             {
-                var block = _blocks[x, y];
+                if (j + k >= num)
+                    break;
 
-                int link_num = 0;
-                int check_link_num_max = num_cols;
+                var check_block = is_by_row ? _blocks[j + k, i] : _blocks[i, j + k];
 
-                for (int i = 1; i < check_link_num_max; i++)
-                {
-                    if (x + i < num_rows && block.type == _blocks[x + i, y].type)
-                        link_num = i + 1;
-                    else
-                        break;
-                }
+                if (check_block.id == 0 || block.type != check_block.type)
+                    break;
 
-                if (link_num >= NUM_MIN_LINK)
-                {
-                    var estimate = new Eliminate();
-                    for (int i = 0; i < link_num; i++)
-                        estimate.cells.Add(new Cell() { x = x + i, y = y });
-
-                    _row_eliminates.Add(estimate);
-
-                    x += link_num;
-                }
-                else
-                    x++;
+                link_num = k + 1;
             }
+
+            if (link_num >= NUM_MIN_LINK)
+            {
+                var estimate = new Eliminate();
+                for (int k = 0; k < link_num; k++)
+                {
+                    if (is_by_row)
+                        estimate.cells.Add(new Cell() { x = j + k, y = i });
+                    else
+                        estimate.cells.Add(new Cell() { x = i, y = j + k });
+                }
+
+                eliminates.Add(estimate);
+
+                j += link_num;
+            }
+            else
+                j++;
         }
     }
 
-    private void _generate_blocks()
+    internal void GenerateBlocks()
     {
         if (_block_types.Count <= 0)
         {
@@ -206,18 +343,16 @@ public class Game : MonoBehaviour
     {
         _clear_block_items();
 
-        for (int x = 0; x < _num_cols; x++)
+        for (int x = 0; x < GetNumCols(); x++)
         {
-            for (int y = 0; y < _rows.Count; y++)
+            for (int y = 0; y < GetNumRows(); y++)
             {
                 var block = _blocks[x, y];
                 var block_type = _block_types.Find(x => x.type == block.type);
 
                 if (block_type != null)
                 {
-                    var block_item = _create_block_item(block.id, block_type, block.x, block.y);
-                    block_item.transform.position = _get_cell_pos(x, y);
-                    _block_items.Add(block.id, block_item);
+                    _create_block_item(block.id, block_type, block.x, block.y);
                 }
             }
         }
@@ -228,9 +363,12 @@ public class Game : MonoBehaviour
         var obj = GameObject.Instantiate(_template_block_item, transform);
         obj.name = $"_block_{id}_{x}_{y}_{type.type}";
         obj.transform.localScale = Vector3.one * _cell_size * 0.9f;
+        obj.transform.position = _get_cell_pos(x, y);
 
         var block_item = obj.GetComponent<BlockItem>();
         block_item.Init(id, x, y, type);
+
+        _block_items.Add(id, block_item);
 
         return block_item;
     }
@@ -238,8 +376,8 @@ public class Game : MonoBehaviour
     private Vector2 _get_cell_pos(int x, int y)
     {
         return new Vector2(
-            _origin.x - (_num_cols * _cell_size) / 2.0f + (x + 0.5f) * _cell_size,
-            _origin.y + (_rows.Count * _cell_size) / 2.0f - (y + 0.5f) * _cell_size);
+            _origin.x - (GetNumCols() * _cell_size) / 2.0f + (x + 0.5f) * _cell_size,
+            _origin.y + (GetNumRows() * _cell_size) / 2.0f - (y + 0.5f) * _cell_size);
     }
 
 #if UNITY_EDITOR
@@ -267,7 +405,7 @@ public class Game : MonoBehaviour
 
         var str = PlayerPrefs.GetString("blocks");
 
-        Debug.Log(str);
+        //Debug.Log(str);
 
         foreach (var block_str in str.Split("|"))
         {
@@ -294,11 +432,11 @@ public class Game : MonoBehaviour
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.green;
-        for (int x = 0; x < _num_cols; x++)
+        for (int x = 0; x < GetNumCols(); x++)
         {
-            for (int y = 0; y < _rows.Count; y++)
+            for (int y = 0; y < GetNumRows(); y++)
             {
-                if (x >= _rows[y].s && x <= _num_cols - 1 - _rows[y].e)
+                if (x >= _rows[y].s && x <= GetNumCols() - 1 - _rows[y].e)
                     _draw_cell(x, y);
             }
         }
@@ -331,7 +469,10 @@ public class Game : MonoBehaviour
             var block = _blocks[x, y];
             var style = _get_cell_label_style();
             var block_type = _block_types.Find(x => x.type == block.type);
-            style.normal.textColor = block_type != null ? block_type.color : Color.gray;
+            if (block.id == 0)
+                style.normal.textColor = Color.gray;
+            else
+                style.normal.textColor = block_type != null ? block_type.color : Color.gray;
             UnityEditor.Handles.Label(pos, $"{block.id}|{block.type}", style);
         }
     }
@@ -352,7 +493,7 @@ public class Game : MonoBehaviour
 }
 
 #if UNITY_EDITOR
-[CustomEditor(typeof(Game))]
+[UnityEditor.CustomEditor(typeof(Game))]
 class GameInspector : UnityEditor.Editor
 {
     public override void OnInspectorGUI()
@@ -370,9 +511,30 @@ class GameInspector : UnityEditor.Editor
             owner.GenerateBlockItems();
         }
 
-        if (GUILayout.Button("Check"))
+        if (GUILayout.Button("Reset"))
         {
-            owner._check_eliminates();
+            owner.GenerateBlocks();
+            owner.GenerateBlockItems();
+        }
+
+        if (GUILayout.Button("Check Eliminate"))
+        {
+            owner.CheckEliminate();
+        }
+
+        if (GUILayout.Button("Do Eliminate"))
+        {
+            owner.DoEliminate();
+        }
+
+        if (GUILayout.Button("Do Drop"))
+        {
+            owner.DoDrop();
+        }
+
+        if (GUILayout.Button("Do Fill"))
+        {
+            owner.DoFill();
         }
 
         DrawDefaultInspector();
