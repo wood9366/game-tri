@@ -36,6 +36,17 @@ public class Game : MonoBehaviour
     [SerializeField]
     private List<CellLine> _rows = new List<CellLine>();
 
+    class Cell
+    {
+        public int x;
+        public int y;
+    }
+
+    class Eliminate
+    {
+        public List<Cell> cells = new List<Cell>();
+    }
+
     class Block
     {
         public int id = 0;
@@ -58,6 +69,7 @@ public class Game : MonoBehaviour
                 _blocks[x, y] = new Block();
 
         _generate_blocks();
+        _check_eliminates();
     }
 
     private void _clear_blocks()
@@ -70,6 +82,81 @@ public class Game : MonoBehaviour
         for (int x = 0; x < _blocks.GetLength(0); x++)
             for (int y = 0; y < _blocks.GetLength(1); y++)
                 _blocks[x, y].id = 0;
+    }
+
+    static private readonly int NUM_MIN_LINK = 3;
+
+    private List<Eliminate> _row_eliminates = new List<Eliminate>();
+    private List<Eliminate> _col_eliminates = new List<Eliminate>();
+
+    private void _check_eliminates()
+    {
+        int num_cols = _blocks.GetLength(0);
+        int num_rows = _blocks.GetLength(1);
+
+        for (int x = 0; x < num_cols; x++)
+        {
+            for (int y = 0; y < num_rows - NUM_MIN_LINK + 1; )
+            {
+                var block = _blocks[x, y];
+
+                int link_num = 0;
+                int check_link_num_max = num_rows;
+
+                for (int i = 1; i < check_link_num_max; i++)
+                {
+                    if (y + i < num_rows && block.type == _blocks[x, y + i].type)
+                        link_num = i + 1;
+                    else
+                        break;
+                }
+
+                if (link_num >= NUM_MIN_LINK)
+                {
+                    var estimate = new Eliminate();
+                    for (int i = 0; i < link_num; i++)
+                        estimate.cells.Add(new Cell() { x = x, y = y + i });
+
+                    _col_eliminates.Add(estimate);
+
+                    y += link_num;
+                }
+                else
+                    y++;
+            }
+        }
+
+        for (int y = 0; y < num_rows; y++)
+        {
+            for (int x = 0; x < num_cols - NUM_MIN_LINK - 1; )
+            {
+                var block = _blocks[x, y];
+
+                int link_num = 0;
+                int check_link_num_max = num_cols;
+
+                for (int i = 1; i < check_link_num_max; i++)
+                {
+                    if (x + i < num_rows && block.type == _blocks[x + i, y].type)
+                        link_num = i + 1;
+                    else
+                        break;
+                }
+
+                if (link_num >= NUM_MIN_LINK)
+                {
+                    var estimate = new Eliminate();
+                    for (int i = 0; i < link_num; i++)
+                        estimate.cells.Add(new Cell() { x = x + i, y = y });
+
+                    _row_eliminates.Add(estimate);
+
+                    x += link_num;
+                }
+                else
+                    x++;
+            }
+        }
     }
 
     private void _generate_blocks()
@@ -114,6 +201,7 @@ public class Game : MonoBehaviour
             _origin.y + (_rows.Count * _cell_size) / 2.0f - (y + 0.5f) * _cell_size);
     }
 
+#if UNITY_EDITOR
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.green;
@@ -125,12 +213,53 @@ public class Game : MonoBehaviour
                     _draw_cell(x, y);
             }
         }
+
+        Gizmos.color = Color.red;
+
+        foreach (var e in _col_eliminates)
+            _draw_estimate(e);
+
+        foreach (var e in _row_eliminates)
+            _draw_estimate(e);
+    }
+
+    private void _draw_estimate(Eliminate e)
+    {
+        for (int i = 0; i < e.cells.Count - 1; i++)
+        {
+            Gizmos.DrawLine(
+                _get_cell_pos(e.cells[i].x, e.cells[i].y),
+                _get_cell_pos(e.cells[i + 1].x, e.cells[i + 1].y));
+        }
     }
 
     private void _draw_cell(int x, int y)
     {
-        Gizmos.DrawWireCube(_get_cell_pos(x, y), Vector2.one * _cell_size);
+        var pos = _get_cell_pos(x, y);
+        Gizmos.DrawWireCube(pos, Vector2.one * _cell_size);
+        if (Application.isPlaying)
+        {
+            var block = _blocks[x, y];
+            var style = _get_cell_label_style();
+            var block_type = _block_types.Find(x => x.type == block.type);
+            style.normal.textColor = block_type != null ? block_type.color : Color.gray;
+            UnityEditor.Handles.Label(pos, $"{block.id}|{block.type}", style);
+        }
     }
+
+    private GUIStyle _cell_label_style;
+
+    private GUIStyle _get_cell_label_style()
+    {
+        if (_cell_label_style == null)
+        {
+            _cell_label_style = new GUIStyle(GUI.skin.label);
+            _cell_label_style.alignment = TextAnchor.MiddleCenter;
+        }
+
+        return _cell_label_style;
+    }
+#endif
 }
 
 #if UNITY_EDITOR
