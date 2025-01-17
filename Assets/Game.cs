@@ -1,5 +1,9 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
 
 public class Game : MonoBehaviour
@@ -68,17 +72,29 @@ public class Game : MonoBehaviour
             for (int y = 0; y < _blocks.GetLength(1); y++)
                 _blocks[x, y] = new Block();
 
+        GameStart();
+    }
+
+    internal async void GameStart()
+    {
         _generate_blocks();
+        GenerateBlockItems();
+
+        await Task.Delay(3000);
+
         _check_eliminates();
     }
 
-    private void _clear_blocks()
+    private void _clear_block_items()
     {
         foreach (var item in _block_items.Values)
             GameObject.Destroy(item.gameObject);
 
         _block_items.Clear();
+    }
 
+    private void _clear_blocks()
+    {
         for (int x = 0; x < _blocks.GetLength(0); x++)
             for (int y = 0; y < _blocks.GetLength(1); y++)
                 _blocks[x, y].id = 0;
@@ -89,8 +105,11 @@ public class Game : MonoBehaviour
     private List<Eliminate> _row_eliminates = new List<Eliminate>();
     private List<Eliminate> _col_eliminates = new List<Eliminate>();
 
-    private void _check_eliminates()
+    internal void _check_eliminates()
     {
+        _row_eliminates.Clear();
+        _col_eliminates.Clear();
+        
         int num_cols = _blocks.GetLength(0);
         int num_rows = _blocks.GetLength(1);
 
@@ -173,11 +192,33 @@ public class Game : MonoBehaviour
             for (int y = 0; y < _rows.Count; y++)
             {
                 var block_type = _block_types[Random.Range(0, _block_types.Count)];
-                var block = _blocks[x, y] = new Block() { id = _next_block_id(), x = x, y = y, type = block_type.type };
+                var block = _blocks[x, y];
 
-                var block_item = _create_block_item(block.id, block_type, block.x, block.y);
-                block_item.transform.position = _get_cell_pos(x, y);
-                _block_items.Add(block.id, block_item);
+                block.id = _next_block_id();
+                block.x = x;
+                block.y = y;
+                block.type = block_type.type;
+            }
+        }
+    }
+
+    internal void GenerateBlockItems()
+    {
+        _clear_block_items();
+
+        for (int x = 0; x < _num_cols; x++)
+        {
+            for (int y = 0; y < _rows.Count; y++)
+            {
+                var block = _blocks[x, y];
+                var block_type = _block_types.Find(x => x.type == block.type);
+
+                if (block_type != null)
+                {
+                    var block_item = _create_block_item(block.id, block_type, block.x, block.y);
+                    block_item.transform.position = _get_cell_pos(x, y);
+                    _block_items.Add(block.id, block_item);
+                }
             }
         }
     }
@@ -202,6 +243,54 @@ public class Game : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    public void Save()
+    {
+        StringBuilder str = new StringBuilder();
+        for (int x = 0; x < _blocks.GetLength(0); x++)
+        {
+            for (int y = 0; y < _blocks.GetLength(1); y++)
+            {
+                var block = _blocks[x, y];
+                if (!(x == 0 && y == 0))
+                    str.Append("|");
+                str.Append($"{block.id},{block.x},{block.y},{block.type}");
+            }
+        }
+
+        PlayerPrefs.SetString("blocks", str.ToString());
+    }
+
+    public void Load()
+    {
+        if (!PlayerPrefs.HasKey("blocks"))
+            return;
+
+        var str = PlayerPrefs.GetString("blocks");
+
+        Debug.Log(str);
+
+        foreach (var block_str in str.Split("|"))
+        {
+            var items = block_str.Split(",");
+
+            if (items.Length < 4)
+                continue;
+
+            if (int.TryParse(items[0], out var id) &&
+                int.TryParse(items[1], out var x) &&
+                int.TryParse(items[2], out var y) &&
+                int.TryParse(items[3], out var type))
+            {
+                var block = _blocks[x, y];
+
+                block.id = id;
+                block.x = x;
+                block.y = y;
+                block.type = type;
+            }
+        }
+    }
+
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.green;
@@ -263,10 +352,29 @@ public class Game : MonoBehaviour
 }
 
 #if UNITY_EDITOR
+[CustomEditor(typeof(Game))]
 class GameInspector : UnityEditor.Editor
 {
     public override void OnInspectorGUI()
     {
+        var owner = target as Game;
+
+        if (GUILayout.Button("Save"))
+        {
+            owner.Save();
+        }
+
+        if (GUILayout.Button("Load"))
+        {
+            owner.Load();
+            owner.GenerateBlockItems();
+        }
+
+        if (GUILayout.Button("Check"))
+        {
+            owner._check_eliminates();
+        }
+
         DrawDefaultInspector();
     }
 }
