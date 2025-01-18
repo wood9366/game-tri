@@ -7,6 +7,9 @@ public class Game : MonoBehaviour
     [SerializeField]
     private GameObject _template_block_item;
 
+    [SerializeField]
+    private GameObject _template_block_item_select;
+
     [System.Serializable]
     public class BlockType
     {
@@ -55,9 +58,13 @@ public class Game : MonoBehaviour
         public int type;
     }
 
-    private Block[,] _blocks;
+    private int[,] _cell2block;
+    private Dictionary<int, Block> _blocks = new Dictionary<int, Block>();
+    private Transform _blocks_root;
     private Dictionary<int, BlockItem> _block_items = new Dictionary<int, BlockItem>();
+    private GameObject _block_item_select;
     private int _start_block_id = 1;
+    private int _selected_block_id = 0;
 
     private int _next_block_id() => _start_block_id++;
     private int GetNumCols() => _num_cols;
@@ -65,10 +72,19 @@ public class Game : MonoBehaviour
 
     void Start()
     {
-        _blocks = new Block[_num_cols, _rows.Count];
-        for (int x = 0; x < GetNumCols(); x++)
-            for (int y = 0; y < GetNumRows(); y++)
-                _blocks[x, y] = new Block();
+        _cell2block = new int[_num_cols, _rows.Count];
+        _clear_blocks();
+
+        _block_item_select = GameObject.Instantiate(_template_block_item_select, transform);
+        _block_item_select.transform.SetParent(transform);
+        _block_item_select.transform.localScale = Vector3.one * _cell_size;
+        _block_item_select.name = "_block_selected";
+
+        _blocks_root = new GameObject("_blocks").transform;
+        _blocks_root.SetParent(transform);
+
+        _block_item_select.SetActive(false);
+        _selected_block_id = 0;
 
         GameStart();
     }
@@ -77,6 +93,48 @@ public class Game : MonoBehaviour
     {
         GenerateBlocks();
         GenerateBlockItems();
+    }
+
+    void _select_block(int x, int y)
+    {
+        var select_block_id = _cell2block[x, y];
+
+        if (select_block_id != 0)
+        {
+            if (_selected_block_id == 0)
+            {
+                _selected_block_id = select_block_id;
+            }
+            else if (_selected_block_id == select_block_id)
+            {
+                _selected_block_id = 0;
+            }
+            else
+            {
+                var block_a = _blocks[_selected_block_id];
+                var block_b = _blocks[select_block_id];
+
+                var ax = block_a.x;
+                var ay = block_a.y;
+
+                _move_block(block_a.id, block_b.x, block_b.y);
+                _move_block(block_b.id, ax, ay);
+
+                if (_block_items.TryGetValue(block_a.id, out var block_item))
+                    block_item.transform.position = _get_cell_pos(block_a.x, block_a.y);
+                if (_block_items.TryGetValue(block_b.id, out block_item))
+                    block_item.transform.position = _get_cell_pos(block_b.x, block_b.y);
+
+                _selected_block_id = 0;
+            }
+
+            _block_item_select.SetActive(_selected_block_id > 0);
+            if (_selected_block_id > 0)
+            {
+                if (_blocks.TryGetValue(_selected_block_id, out var block))
+                    _block_item_select.transform.position = _get_cell_pos(block.x, block.y);
+            }
+        }
     }
 
     private void _clear_block_items()
@@ -91,46 +149,61 @@ public class Game : MonoBehaviour
     {
         for (int x = 0; x < GetNumCols(); x++)
             for (int y = 0; y < GetNumRows(); y++)
-                _blocks[x, y].id = 0;
+                _cell2block[x, y] = 0;
+
+        _blocks.Clear();
     }
 
     internal void DoFill()
     {
-        _change_blocks.Clear();
+        _tmp_blocks.Clear();
 
         // find empty blocks on each col
         for (int x = 0; x < GetNumCols(); x++)
         {
             for (int y = 0; y < GetNumRows(); y++)
             {
-                var block = _blocks[x, y];
+                var block_id = _cell2block[x, y];
 
-                if (block.id != 0)
+                if (block_id != 0)
                     break;
 
-                var block_type = _block_types[Random.Range(0, _block_types.Count)];
+                var block = _create_block(x, y);
 
-                block.id = _next_block_id();
-                block.type = block_type.type;
-
-                _change_blocks.Add(block.id, new Cell() { x = x, y = y });
+                _tmp_blocks.Add(block.id);
             }
         }
 
-        foreach (var item in _change_blocks)
+        foreach (var block_id in _tmp_blocks)
         {
-            var block = _blocks[item.Value.x, item.Value.y];
-            var block_type = _block_types.Find(x => x.type == block.type);
+            if (!_blocks.TryGetValue(block_id, out var block))
+                continue;
 
-            _create_block_item(item.Key, block_type, item.Value.x, item.Value.y);
+            var block_type = _block_types.Find(x => x.type == block.type);
+            _create_block_item(block.id, block_type, block.x, block.y);
         }
     }
+    
+    private Block _create_block(int x, int y)
+    {
+        var block_type = _block_types[Random.Range(0, _block_types.Count)];
+        var block = new Block()
+        {
+            id = _next_block_id(),
+            type = block_type.type,
+            x = x,
+            y = y,
+        };
 
-    private Dictionary<int, Cell> _change_blocks = new Dictionary<int, Cell>();
+        _cell2block[block.x, block.y] = block.id;
+        _blocks.Add(block.id, block);
+
+        return block;
+    }
 
     internal void DoDrop()
     {
-        _change_blocks.Clear();
+        _tmp_blocks.Clear();
         
         // cal drop blocks on each col
         for (int x = 0; x < GetNumCols(); x++)
@@ -141,100 +214,76 @@ public class Game : MonoBehaviour
             // from bottom to top check link empty block
             while (y >= 0)
             {
-                if (_blocks[x, y].id == 0)
-                {
+                if (_cell2block[x, y] == 0)
                     num_empty++;
-                    y--;
-                }
-                else
+                else if (num_empty > 0)
                 {
-                    if (num_empty > 0)
-                    {
-                        // move item on top of empty blocks down
-                        for (int i = y; i >= 0; i--)
-                        {
-                            var from_block = _blocks[x, i];
-                            var to_block = _blocks[x, i + num_empty];
+                    var block_id = _cell2block[x, y];
+                    var to_y = y + num_empty;
 
-                            to_block.id = from_block.id;
-                            to_block.type = from_block.type;
-
-                            // record drop block id and move to cell
-                            if (!_change_blocks.TryGetValue(from_block.id, out var drop_block))
-                            {
-                                drop_block = new Cell();
-                                _change_blocks.Add(from_block.id, drop_block);
-                            }
-
-                            drop_block.x = x;
-                            drop_block.y = i + num_empty;
-                        }
-
-                        for (int i = 0; i < num_empty; i++)
-                            _blocks[x, i].id = 0;
-
-                        y += num_empty - 1;
-                        num_empty = 0;
-                    }
-                    else
-                    {
-                        y--;
-                    }
+                    _move_block(block_id, x, to_y);
+                    _tmp_blocks.Add(block_id);
                 }
+
+                y--;
             }
         }
 
         // update drop block items pos
-        foreach (var id2cell in _change_blocks)
+        foreach (var block_id in _tmp_blocks)
         {
-            if (_block_items.TryGetValue(id2cell.Key, out var item))
+            if (_block_items.TryGetValue(block_id, out var block_item) &&
+                _blocks.TryGetValue(block_id, out var block))
             {
-                var cell = id2cell.Value;
-                item.transform.position = _get_cell_pos(cell.x, cell.y);
+                block_item.transform.position = _get_cell_pos(block.x, block.y);
             }
         }
+    }
+
+    private void _move_block(int id, int x, int y)
+    {
+        if (!_blocks.TryGetValue(id, out var block))
+            return;
+
+        _cell2block[block.x, block.y] = 0;
+
+        block.x = x;
+        block.y = y;
+        _cell2block[block.x, block.y] = block.id;
     }
 
     static private readonly int NUM_MIN_LINK = 3;
 
     private List<Eliminate> _row_eliminates = new List<Eliminate>();
     private List<Eliminate> _col_eliminates = new List<Eliminate>();
-    private HashSet<int> _eliminate_blocks = new HashSet<int>();
+    private HashSet<int> _tmp_blocks = new HashSet<int>();
 
     internal void DoEliminate()
     {
         // remove eliminate blocks
-        _eliminate_blocks.Clear();
+        _tmp_blocks.Clear();
 
         foreach (var e in _row_eliminates)
-        {
             foreach (var c in e.cells)
-            {
-                var block = _blocks[c.x, c.y];
-
-                _eliminate_blocks.Add(block.id);
-                block.id = 0;
-            }
-        }
+                _tmp_blocks.Add(_cell2block[c.x, c.y]);
 
         _row_eliminates.Clear();
 
         foreach (var e in _col_eliminates)
-        {
             foreach (var c in e.cells)
-            {
-                var block = _blocks[c.x, c.y];
-
-                _eliminate_blocks.Add(block.id);
-                block.id = 0;
-            }
-        }
+                _tmp_blocks.Add(_cell2block[c.x, c.y]);
 
         _col_eliminates.Clear();
 
         // remove eliminate block items
-        foreach (var id in _eliminate_blocks)
+        foreach (var id in _tmp_blocks)
         {
+            if (_blocks.TryGetValue(id, out var block))
+            {
+                _blocks.Remove(block.id);
+                _cell2block[block.x, block.y] = 0;
+            }
+
             if (_block_items.TryGetValue(id, out var item))
             {
                 _block_items.Remove(id);
@@ -242,7 +291,7 @@ public class Game : MonoBehaviour
             }
         }
 
-        _eliminate_blocks.Clear();
+        _tmp_blocks.Clear();
     }
 
     internal void CheckEliminate()
@@ -270,9 +319,9 @@ public class Game : MonoBehaviour
         int j = 0;
         while (j < num - NUM_MIN_LINK + 1)
         {
-            var block = is_by_row ? _blocks[j, i] : _blocks[i, j];
+            var block_id = is_by_row ? _cell2block[j, i] : _cell2block[i, j];
 
-            if (block.id == 0)
+            if (block_id == 0)
             {
                 j++;
                 continue;
@@ -287,9 +336,18 @@ public class Game : MonoBehaviour
                 if (j + k >= num)
                     break;
 
-                var check_block = is_by_row ? _blocks[j + k, i] : _blocks[i, j + k];
+                var check_block_id = is_by_row ? _cell2block[j + k, i] : _cell2block[i, j + k];
 
-                if (check_block.id == 0 || block.type != check_block.type)
+                if (check_block_id == 0)
+                    break;
+
+                if (!_blocks.TryGetValue(block_id, out var block))
+                    break;
+
+                if (!_blocks.TryGetValue(check_block_id, out var check_block))
+                    break;
+
+                if (block.type != check_block.type)
                     break;
 
                 link_num = k + 1;
@@ -324,49 +382,34 @@ public class Game : MonoBehaviour
         }
 
         _clear_blocks();
-        for (int x = 0; x < _num_cols; x++)
-        {
-            for (int y = 0; y < _rows.Count; y++)
-            {
-                var block_type = _block_types[Random.Range(0, _block_types.Count)];
-                var block = _blocks[x, y];
 
-                block.id = _next_block_id();
-                block.x = x;
-                block.y = y;
-                block.type = block_type.type;
-            }
-        }
+        for (int x = 0; x < GetNumCols(); x++)
+            for (int y = 0; y < GetNumRows(); y++)
+                _create_block(x, y);
     }
 
     internal void GenerateBlockItems()
     {
         _clear_block_items();
 
-        for (int x = 0; x < GetNumCols(); x++)
+        foreach (var block in _blocks.Values)
         {
-            for (int y = 0; y < GetNumRows(); y++)
-            {
-                var block = _blocks[x, y];
-                var block_type = _block_types.Find(x => x.type == block.type);
+            var block_type = _block_types.Find(x => x.type == block.type);
 
-                if (block_type != null)
-                {
-                    _create_block_item(block.id, block_type, block.x, block.y);
-                }
-            }
+            if (block_type != null)
+                _create_block_item(block.id, block_type, block.x, block.y);
         }
     }
 
     private BlockItem _create_block_item(int id, BlockType type, int x, int y)
     {
-        var obj = GameObject.Instantiate(_template_block_item, transform);
+        var obj = GameObject.Instantiate(_template_block_item, _blocks_root);
         obj.name = $"_block_{id}_{x}_{y}_{type.type}";
         obj.transform.localScale = Vector3.one * _cell_size * 0.9f;
         obj.transform.position = _get_cell_pos(x, y);
 
         var block_item = obj.GetComponent<BlockItem>();
-        block_item.Init(id, x, y, type);
+        block_item.Init(id, type);
 
         _block_items.Add(id, block_item);
 
@@ -380,19 +423,40 @@ public class Game : MonoBehaviour
             _origin.y + (GetNumRows() * _cell_size) / 2.0f - (y + 0.5f) * _cell_size);
     }
 
+    private void Update()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            Vector2 wpos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+
+            var lt = new Vector2(
+                _origin.x - (GetNumCols() * _cell_size) / 2.0f,
+                _origin.y + (GetNumRows() * _cell_size) / 2.0f);
+
+            var pos = wpos - lt;
+
+            var x = (int)(pos.x / _cell_size);
+            var y = (int)(-pos.y / _cell_size);
+
+            if (x >= 0 && x < GetNumCols() && y >= 0 && y < GetNumRows())
+            {
+                Debug.Log($"> click pos: ({wpos}), cell: {x}, {y}");
+                _select_block(x, y);
+            }
+        }
+    }
+
 #if UNITY_EDITOR
     public void Save()
     {
         StringBuilder str = new StringBuilder();
-        for (int x = 0; x < _blocks.GetLength(0); x++)
+        bool first = true;
+        foreach (var block in _blocks.Values)
         {
-            for (int y = 0; y < _blocks.GetLength(1); y++)
-            {
-                var block = _blocks[x, y];
-                if (!(x == 0 && y == 0))
-                    str.Append("|");
-                str.Append($"{block.id},{block.x},{block.y},{block.type}");
-            }
+            if (!first)
+                str.Append("|");
+            str.Append($"{block.id},{block.x},{block.y},{block.type}");
+            first = false;
         }
 
         PlayerPrefs.SetString("blocks", str.ToString());
@@ -407,6 +471,8 @@ public class Game : MonoBehaviour
 
         //Debug.Log(str);
 
+        _clear_blocks();
+
         foreach (var block_str in str.Split("|"))
         {
             var items = block_str.Split(",");
@@ -419,12 +485,16 @@ public class Game : MonoBehaviour
                 int.TryParse(items[2], out var y) &&
                 int.TryParse(items[3], out var type))
             {
-                var block = _blocks[x, y];
+                var block = new Block()
+                {
+                    id = id,
+                    x = x,
+                    y = y,
+                    type = type
+                };
 
-                block.id = id;
-                block.x = x;
-                block.y = y;
-                block.type = type;
+                _blocks.Add(block.id, block);
+                _cell2block[block.x, block.y] = block.id;
             }
         }
     }
@@ -466,13 +536,20 @@ public class Game : MonoBehaviour
         Gizmos.DrawWireCube(pos, Vector2.one * _cell_size);
         if (Application.isPlaying)
         {
-            var block = _blocks[x, y];
+            var block_id = _cell2block[x, y];
+            if (block_id == 0)
+                return;
+
+            if (!_blocks.TryGetValue(block_id, out var block))
+                return;
+
             var style = _get_cell_label_style();
             var block_type = _block_types.Find(x => x.type == block.type);
             if (block.id == 0)
                 style.normal.textColor = Color.gray;
             else
                 style.normal.textColor = block_type != null ? block_type.color : Color.gray;
+
             UnityEditor.Handles.Label(pos, $"{block.id}|{block.type}", style);
         }
     }
