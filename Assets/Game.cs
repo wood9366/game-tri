@@ -89,13 +89,138 @@ public class Game : MonoBehaviour
         GameStart();
     }
 
+    enum GameStatus
+    {
+        none = 0,
+        play,
+        swap,
+        check,
+        eliminate,
+        drop,
+        fill
+    }
+
+    private GameStatus _game_status = GameStatus.none;
+    private float _status_timer = 0;
+
+    private void _set_game_status(GameStatus game_status, bool force = false)
+    {
+        if (game_status != _game_status || force)
+        {
+            _status_timer = 0;
+            _game_status = game_status;
+
+            if (_game_status == GameStatus.check)
+                CheckEliminate();
+            else if (_game_status == GameStatus.eliminate)
+                DoEliminate();
+            else if (_game_status == GameStatus.drop)
+                DoDrop();
+            else if (_game_status == GameStatus.fill)
+                DoFill();
+            else if (_game_status == GameStatus.swap)
+                _do_swap(_swap_from, _swap_to);
+        }
+    }
+
+    private void _do_swap(int from, int to)
+    {
+        _swap_block(from, to);
+
+        if (_block_items.TryGetValue(from, out var block_item) &&
+            _blocks.TryGetValue(from, out var block))
+        {
+            block_item.transform.position = _get_cell_pos(block.x, block.y);
+        }
+
+        if (_block_items.TryGetValue(to, out block_item) &&
+            _blocks.TryGetValue(to, out block))
+        {
+            block_item.transform.position = _get_cell_pos(block.x, block.y);
+        }
+
+        CheckEliminate();
+    }
+
+    private bool _has_empty_cell()
+    {
+        for (int x = 0; x < GetNumCols(); x++)
+        {
+            for (int y = 0; y < GetNumRows(); y++)
+            {
+                if (_cell2block[x, y] == 0)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool _has_eliminate()
+    {
+        return _row_eliminates.Count > 0 || _col_eliminates.Count > 0;
+    }
+
+    private void _update_status()
+    {
+        float duration = 1;
+
+        _status_timer += Time.deltaTime;
+
+        if (_game_status == GameStatus.check)
+        {
+            if (_status_timer > duration)
+            {
+                if (_has_eliminate())
+                    _set_game_status(GameStatus.eliminate);
+                else if (_has_empty_cell())
+                    _set_game_status(GameStatus.fill);
+                else
+                    _set_game_status(GameStatus.play);
+            }
+        }
+        else if (_game_status == GameStatus.eliminate)
+        {
+            if (_status_timer > duration)
+                _set_game_status(GameStatus.drop);
+        }
+        else if (_game_status == GameStatus.drop)
+        {
+            if (_status_timer > duration)
+                _set_game_status(GameStatus.check);
+        }
+        else if (_game_status == GameStatus.fill)
+        {
+            if (_status_timer > duration)
+                _set_game_status(GameStatus.check);
+        }
+        else if (_game_status == GameStatus.swap)
+        {
+            if (_status_timer > duration)
+            {
+                if (_has_eliminate())
+                    _set_game_status(GameStatus.eliminate);
+                else
+                {
+                    _do_swap(_swap_from, _swap_to);
+                    _set_game_status(GameStatus.play);
+                }
+            }
+        }
+    }
+
     internal void GameStart()
     {
         GenerateBlocks();
         GenerateBlockItems();
+
+        _set_game_status(GameStatus.check);
     }
 
-    void _select_block(int x, int y)
+    private int _swap_from = 0;
+    private int _swap_to = 0;
+
+    void _on_click_cell(int x, int y)
     {
         var select_block_id = _cell2block[x, y];
 
@@ -111,21 +236,16 @@ public class Game : MonoBehaviour
             }
             else
             {
-                var block_a = _blocks[_selected_block_id];
-                var block_b = _blocks[select_block_id];
+                var block = _blocks[_selected_block_id];
 
-                var ax = block_a.x;
-                var ay = block_a.y;
-
-                _move_block(block_a.id, block_b.x, block_b.y);
-                _move_block(block_b.id, ax, ay);
-
-                if (_block_items.TryGetValue(block_a.id, out var block_item))
-                    block_item.transform.position = _get_cell_pos(block_a.x, block_a.y);
-                if (_block_items.TryGetValue(block_b.id, out block_item))
-                    block_item.transform.position = _get_cell_pos(block_b.x, block_b.y);
-
-                _selected_block_id = 0;
+                if ((x == block.x && (y == block.y - 1 || y == block.y + 1)) ||
+                    (y == block.y && (x == block.x - 1 || x == block.x + 1)))
+                {
+                    _swap_from = _selected_block_id;
+                    _swap_to = select_block_id;
+                    _set_game_status(GameStatus.swap);
+                    _selected_block_id = 0;
+                }
             }
 
             _block_item_select.SetActive(_selected_block_id > 0);
@@ -139,8 +259,8 @@ public class Game : MonoBehaviour
 
     private void _clear_block_items()
     {
-        foreach (var item in _block_items.Values)
-            GameObject.Destroy(item.gameObject);
+        for (int i = _blocks_root.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_blocks_root.GetChild(i).gameObject);
 
         _block_items.Clear();
     }
@@ -238,6 +358,23 @@ public class Game : MonoBehaviour
                 block_item.transform.position = _get_cell_pos(block.x, block.y);
             }
         }
+    }
+
+    private void _swap_block(int from, int to)
+    {
+        var block_from = _blocks[from];
+        var block_to = _blocks[to];
+
+        _cell2block[block_from.x, block_from.y] = block_to.id;
+        _cell2block[block_to.x, block_to.y] = block_from.id;
+
+        var block_from_x = block_from.x;
+        var block_from_y = block_from.y;
+
+        block_from.x = block_to.x;
+        block_from.y = block_to.y;
+        block_to.x = block_from_x;
+        block_to.y = block_from_y;
     }
 
     private void _move_block(int id, int x, int y)
@@ -404,7 +541,7 @@ public class Game : MonoBehaviour
     private BlockItem _create_block_item(int id, BlockType type, int x, int y)
     {
         var obj = GameObject.Instantiate(_template_block_item, _blocks_root);
-        obj.name = $"_block_{id}_{x}_{y}_{type.type}";
+        obj.name = $"_block_{id}_{type.type}";
         obj.transform.localScale = Vector3.one * _cell_size * 0.9f;
         obj.transform.position = _get_cell_pos(x, y);
 
@@ -425,7 +562,9 @@ public class Game : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetMouseButtonDown(0))
+        _update_status();
+        
+        if (_game_status == GameStatus.play && Input.GetMouseButtonDown(0))
         {
             Vector2 wpos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
 
@@ -440,8 +579,7 @@ public class Game : MonoBehaviour
 
             if (x >= 0 && x < GetNumCols() && y >= 0 && y < GetNumRows())
             {
-                Debug.Log($"> click pos: ({wpos}), cell: {x}, {y}");
-                _select_block(x, y);
+                _on_click_cell(x, y);
             }
         }
     }
@@ -473,6 +611,7 @@ public class Game : MonoBehaviour
 
         _clear_blocks();
 
+        int max_block_id = 0;
         foreach (var block_str in str.Split("|"))
         {
             var items = block_str.Split(",");
@@ -495,8 +634,15 @@ public class Game : MonoBehaviour
 
                 _blocks.Add(block.id, block);
                 _cell2block[block.x, block.y] = block.id;
+
+                if (id > max_block_id)
+                    max_block_id = id;
             }
         }
+
+        _start_block_id = max_block_id + 1;
+
+        _set_game_status(GameStatus.check, true);
     }
 
     private void OnDrawGizmos()
