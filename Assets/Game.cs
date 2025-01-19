@@ -163,7 +163,7 @@ public class Game : MonoBehaviour
 
     private void _update_status()
     {
-        float duration = 1;
+        float duration = 0.2f;
 
         _status_timer += Time.deltaTime;
 

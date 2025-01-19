@@ -421,6 +421,8 @@ MonoBehaviour:
     color: {r: 0, g: 1, b: 0.18795967, a: 1}
   - type: 4
     color: {r: 0, g: 0.082979895, b: 0.8616352, a: 1}
+  - type: 5
+    color: {r: 1, g: 0.47103676, b: 0, a: 1}
   _cell_size: 0.6
   _origin: {x: 0, y: 0}
   _num_cols: 8
