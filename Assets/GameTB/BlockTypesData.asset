@@ -1,0 +1,80 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 86fe4f86997fca94a9895b7dcb4091ea, type: 3}
+  m_Name: BlockTypesData
+  m_EditorClassIdentifier: 
+  serializationData:
+    SerializedFormat: 2
+    SerializedBytes: 
+    ReferencedUnityObjects: []
+    SerializedBytesString: 
+    Prefab: {fileID: 0}
+    PrefabModificationsReferencedUnityObjects: []
+    PrefabModifications: []
+    SerializationNodes: []
+  _blocks:
+  - id: 1
+    type: 1
+    subtype: 2
+    num_eliminate: 0
+    color: {r: 0, g: 0, b: 1, a: 1}
+    shape: {fileID: -453893457, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -409044224, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 2
+    type: 1
+    subtype: 1
+    num_eliminate: 0
+    color: {r: 1, g: 0, b: 0, a: 1}
+    shape: {fileID: -1667324294, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -409044224, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 3
+    type: 1
+    subtype: 4
+    num_eliminate: 0
+    color: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+    shape: {fileID: 98849282, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -409044224, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 4
+    type: 1
+    subtype: 3
+    num_eliminate: 0
+    color: {r: 0, g: 1, b: 0, a: 1}
+    shape: {fileID: -1442225431, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -409044224, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 5
+    type: 2
+    subtype: 1
+    num_eliminate: 5
+    color: {r: 1, g: 1, b: 1, a: 1}
+    shape: {fileID: -1406088443, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -1108907438, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 6
+    type: 2
+    subtype: 2
+    num_eliminate: 5
+    color: {r: 1, g: 1, b: 1, a: 1}
+    shape: {fileID: -1406088443, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -2061289208, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 7
+    type: 3
+    subtype: 0
+    num_eliminate: 7
+    color: {r: 1, g: 1, b: 1, a: 1}
+    shape: {fileID: -1725340992, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: -414111792, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 8
+    type: 4
+    subtype: 0
+    num_eliminate: 9
+    color: {r: 1, g: 1, b: 1, a: 1}
+    shape: {fileID: -1612644037, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: 1898022776, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
