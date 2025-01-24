@@ -10,6 +10,8 @@ public class Board : SerializedMonoBehaviour
     public BlockTypesData _block_types_data;
     public GameObject _template_block;
     public Transform _root_blocks;
+    public GameObject _template_line;
+    public Transform _root_lines;
     public Vector2Int _cell_diminsion = new Vector2Int(10, 10);
     public Vector2 _cell_size = Vector2.one * 0.1f;
     public Dictionary<Vector2Int, Block> _cells = new Dictionary<Vector2Int, Block>();
@@ -29,8 +31,7 @@ public class Board : SerializedMonoBehaviour
             }
         }
 
-        _check_all_linked_bricks();
-        _update_bricks_shape();
+        _change_bricks_shape();
     }
 
     private Dictionary<int, int> _col_top_cell_y = new Dictionary<int, int>();
@@ -47,7 +48,7 @@ public class Board : SerializedMonoBehaviour
         }
     }
 
-    private void _on_click_cell(Vector2Int cell_pos)
+    private async void _on_click_cell(Vector2Int cell_pos)
     {
         if (!_cells.TryGetValue(cell_pos, out var block))
             return;
@@ -57,35 +58,136 @@ public class Board : SerializedMonoBehaviour
         {
             // check linked bricks by subtype
             _check_linked_bricks(cell_pos);
+
+            if (_block_linked_cells.Count <= 1)
+            {
+                block.Shake();
+                return;
+            }
+
+            await _eliminate_linked_bricks();
+            _generate_special_block(block);
+        }
+        else if (block.data.type == (int)EBlockType.rocket)
+        {
+            var tasks = new List<UniTask>();
+
+            if (block.data.subtype == (int)ERocketType.horizental)
+            {
+                for (int x = 0; x < _cell_diminsion.x; x++)
+                    tasks.Add(_eliminate_block(new Vector2Int(x, cell_pos.y)));
+            }
+            else if (block.data.subtype == (int)ERocketType.vertical)
+            {
+                for (int y = 0; y < _cell_diminsion.y; y++)
+                    tasks.Add(_eliminate_block(new Vector2Int(cell_pos.x, y)));
+            }
+            else
+                tasks.Add(_eliminate_block(cell_pos));
+
+            await UniTask.WhenAll(tasks);
+        }
+        else if (block.data.type == (int)EBlockType.bomb)
+        {
+            var tasks = new List<UniTask>();
+
+            for (int x = -1; x <= 1; x++)
+                for (int y = -1; y <= 1; y++)
+                    tasks.Add(_eliminate_block(new Vector2Int(cell_pos.x + x, cell_pos.y + y)));
+
+            await UniTask.WhenAll(tasks);
+        }
+        else if (block.data.type == (int)EBlockType.sphere)
+        {
+            _clear_all_lines();
+
+            var cells = new List<Vector2Int>();
+
+            for (int x = 0; x < _cell_diminsion.x; x++)
+            {
+                for (int y = 0; y < _cell_diminsion.y; y++)
+                {
+                    var cpos = new Vector2Int(x, y);
+                    if (!_cells.TryGetValue(cpos, out var b))
+                        continue;
+
+                    if (cpos == cell_pos)
+                        continue;
+
+                    if (b.data.subtype == block.data.subtype)
+                        cells.Add(cpos);
+                }
+            }
+
+            var tasks = new List<UniTask>();
+
+            for (int i = 0; i < cells.Count; i++)
+            {
+                var delay = i * 0.1f;
+                tasks.Add(_line_anim(_cal_cell_wpos(cell_pos),
+                    _cal_cell_wpos(cells[i]),
+                    block.data.color,
+                    delay));
+            }
+
+            await UniTask.WhenAll(tasks);
+
+            tasks.Clear();
+            tasks.Add(_eliminate_block(cell_pos));
+            foreach (var cpos in cells)
+                tasks.Add(_eliminate_block(cpos));
+
+            await UniTask.WhenAll(tasks);
+
+            _clear_all_lines();
         }
 
-        if (_block_linked_cells.Count > 1)
-            _process_op_flow();
-        else
-            block.Shake();
+        _drop_block_by_cols();
+        _generate_new_block_on_top();
+        await _drop_blocks();
+        _change_bricks_shape();
     }
 
-    private async void _process_op_flow()
+    private void _clear_all_lines()
     {
-        List<UniTask> _tasks = new List<UniTask>();
+        for (int i = _root_lines.transform.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_root_lines.transform.GetChild(i).gameObject);
+    }
 
-        // eliminate those bricks
-        _eliminate_cols.Clear();
-        var time_eliminate_delay = Mathf.Min(_block_linked_cells.Count * 0.08f, 0.8f);
-        for (int i = 0; i < _block_linked_cells.Count; i++)
-        {
-            var delay = Mathf.Clamp01((float)i / (_block_linked_cells.Count - 1)) * time_eliminate_delay;
-            _tasks.Add(_eliminate_block(_block_linked_cells[i], delay));
-        }
+    private async UniTask _line_anim(Vector2 from, Vector2 to, Color color, float delay = 0, float speed = 5)
+    {
+        var dir = (to - from).normalized;
+        var obj = GameObject.Instantiate(_template_line, _root_lines);
+        obj.transform.localPosition = from;
+        obj.transform.localRotation = Quaternion.LookRotation(Vector3.forward, new Vector2(-dir.y, dir.x));
 
-        await UniTask.WhenAll(_tasks);
+        var sr = obj.GetComponent<SpriteRenderer>();
+        sr.color = color;
+        var width = Vector2.Distance(from, to);
+        var dt = DOTween.To(x => sr.size = new Vector2(x, sr.size.y), 0, width, width / speed)
+            .SetTarget(sr)
+            .SetDelay(delay);
 
-        // drop block by cols
-        _drop_cells.Clear();
-        _col_new_block_num.Clear();
-        for (int x = 0; x < _cell_diminsion.x; x++)
-            _check_col_drop(x);
+        await dt.AsyncWaitForCompletion();
+    }
 
+    private void _change_bricks_shape()
+    {
+        _check_all_linked_bricks();
+        _update_bricks_shape();
+    }
+
+    private async UniTask _drop_blocks()
+    {
+        List<UniTask> tasks = new List<UniTask>();
+        foreach (var drop_cell in _drop_cells)
+            tasks.Add(drop_cell.Item1.Drop(_cal_cell_wpos(drop_cell.Item2)));
+
+        await UniTask.WhenAll(tasks);
+    }
+
+    private void _generate_new_block_on_top()
+    {
         // generate new block on eliminate columns
         for (int x = 0; x < _cell_diminsion.x; x++)
         {
@@ -108,17 +210,62 @@ public class Board : SerializedMonoBehaviour
                 y++;
             }
         }
+    }
 
-        // drop cell on board to full empty cell
-        _tasks.Clear();
-        foreach (var drop_cell in _drop_cells)
-            _tasks.Add(drop_cell.Item1.Drop(_cal_cell_wpos(drop_cell.Item2)));
+    private void _drop_block_by_cols()
+    {
+        // drop block by cols
+        _drop_cells.Clear();
+        _col_new_block_num.Clear();
+        for (int x = 0; x < _cell_diminsion.x; x++)
+            _check_col_drop(x);
+    }
 
-        await UniTask.WhenAll(_tasks);
+    private void _generate_special_block(Block block)
+    {
+        int max_num_eliminate = 0;
+        int type = 0;
+        foreach (var b in _block_types_data._blocks)
+        {
+            if (b.type == (int)EBlockType.brick)
+                continue;
 
-        // update bricks shape
-        _check_all_linked_bricks();
-        _update_bricks_shape();
+            if (b.num_eliminate > _block_linked_cells.Count)
+                continue;
+
+            if (b.num_eliminate > max_num_eliminate)
+            {
+                max_num_eliminate = b.num_eliminate;
+                type = b.type;
+            }
+        }
+
+        var block_types = _block_types_data._blocks
+            .Where(x => x.type == type).ToList();
+
+        if (type == (int)EBlockType.sphere)
+            block_types = block_types.Where(x => x.subtype == block.data.subtype).ToList();
+
+        if (block_types.Count > 0)
+        {
+            var cpos = _block_linked_cells[0];
+            var block_type = block_types[Random.Range(0, block_types.Count)];
+            var new_block = _create_block(cpos, block_type.id);
+            _cells[cpos] = new_block;
+        }
+    }
+
+    private async UniTask _eliminate_linked_bricks()
+    {
+        List<UniTask> tasks = new List<UniTask>();
+
+        // eliminate those bricks
+        _eliminate_cols.Clear();
+        var time_eliminate_delay = Mathf.Min(_block_linked_cells.Count * 0.08f, 0.8f);
+        for (int i = 0; i < _block_linked_cells.Count; i++)
+            tasks.Add(_eliminate_block(_block_linked_cells[i]));
+
+        await UniTask.WhenAll(tasks);
     }
 
     private int _get_rand_brick_tid()

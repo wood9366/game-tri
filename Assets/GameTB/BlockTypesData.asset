@@ -73,8 +73,29 @@ MonoBehaviour:
     icon: {fileID: -414111792, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
   - id: 8
     type: 4
-    subtype: 0
+    subtype: 1
     num_eliminate: 9
-    color: {r: 1, g: 1, b: 1, a: 1}
+    color: {r: 1, g: 0, b: 0, a: 1}
+    shape: {fileID: -1612644037, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: 1898022776, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 9
+    type: 4
+    subtype: 2
+    num_eliminate: 9
+    color: {r: 0, g: 0, b: 1, a: 1}
+    shape: {fileID: -1612644037, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: 1898022776, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 10
+    type: 4
+    subtype: 3
+    num_eliminate: 9
+    color: {r: 0, g: 1, b: 0, a: 1}
+    shape: {fileID: -1612644037, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+    icon: {fileID: 1898022776, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
+  - id: 11
+    type: 4
+    subtype: 4
+    num_eliminate: 9
+    color: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
     shape: {fileID: -1612644037, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
     icon: {fileID: 1898022776, guid: edc3f6068196ca540b5c365feb439c8e, type: 3}
